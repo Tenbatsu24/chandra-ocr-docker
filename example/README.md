@@ -33,6 +33,7 @@ cp .env.example .env
 | `NOTES_DIR`                | no       | Notes directory; derives `VAULT_DIR`, `STATE_FILE`, `SYNC_FILE`      |
 | `VAULT_DIR`                | no       | Obsidian vault directory; derives `RAW_LITERATURE_DIR` default       |
 | `OBSIDIAN_RESEARCH_DIR`    | no       | Output directory for `create_slugs.py`                               |
+| `STATE_FILE`               | no       | JSON file tracking already-processed citation keys (recommended)     |
 | `OCR_SERVER`               | no       | Base URL of the Chandra OCR server (default: `http://127.0.0.1:8080`)|
 | `SLEEP_SECONDS`            | no       | Seconds to sleep between processing consecutive papers (default: 15) |
 
