@@ -1,164 +1,84 @@
-# Chandra OCR — self-hosted server
+# Chandra OCR Docker
 
-Wraps [datalab-to/chandra](https://github.com/datalab-to/chandra) (OCR: PDFs/images ->
-Markdown + HTML + JSON + extracted images) in a single Docker container for a
-remote box with **one 24GB+ GPU**. Inside the container:
+Containerized deployment of [Chandra OCR 2](https://github.com/datalab-to/chandra) — an OCR engine that converts PDFs and images into structured Markdown, HTML, JSON, and extracted images — served over HTTP from a single GPU-backed Docker container.
 
-1. `vllm serve datalab-to/chandra-ocr-2 ...` runs the model as an
-   OpenAI-compatible server (this replaces chandra's own `chandra_vllm`
-   launcher, which spins up a *second*, sibling Docker container — awkward
-   to nest. Running `vllm serve` directly inside our container avoids
-   docker-in-docker entirely).
-2. `server.py` (FastAPI) wraps the `chandra` CLI and exposes it over HTTP.
-   Each request runs `chandra <upload> <job_dir> ...` in an isolated temp
-   directory, then returns the **full output folder** (markdown + HTML +
-   metadata JSON + extracted images) as a zip — or just the markdown/HTML/JSON
-   alone, if you'd rather not deal with a zip.
-3. `docker-entrypoint.sh` starts both processes, waits for vLLM to report
-   healthy before starting the API, and exits (so your orchestrator can
-   restart the container) if either process dies.
+This repo also includes a Python client and an example pipeline that automates running OCR over a Zotero library and writing results into an Obsidian vault.
 
-A Python client (`client.py`) is included for querying the endpoint with all
-the available options.
+## Repository layout
 
-## ⚠️ Before you build: model license
-
-- **Model license**: Chandra's code is Apache-2.0, but the model weights use
-  a modified OpenRAIL-M license (free for research/personal use and startups
-  under $2M funding/revenue; commercial self-hosting beyond that needs a
-  license from datalab.to). Make sure your usage qualifies.
-
-## Build & run
-
-Model weights are cached on the **host**, not baked into the image, so they
-survive rebuilds. Create the directory once on the host:
-
-```bash
-mkdir -p /shared/huggingface/cache
+```
+ocr_docker/        Docker image + FastAPI server wrapping the `chandra` CLI
+ocr_client/        Python client library + CLI for querying the server
+example/           Zotero → OCR → Obsidian automation scripts
+.env.example       Global env template (used by all subprojects)
+Makefile           `make clean` to remove Python cache/build artifacts
+pyproject.toml     Ruff configuration (black-compatible formatting)
 ```
 
-Then:
+## Quick start
+
+### 1. Build and run the server
+
+See [ocr_docker/README.md](ocr_docker/README.md) for full instructions.
 
 ```bash
-git clone <this-folder-or-repo> chandra-deploy
-cd chandra-deploy
-cp .env.example .env        # adjust GPU_MEMORY_UTILIZATION, HF_TOKEN, etc.
-
+cd ocr_docker
+cp ../.env.example .env       # adjust GPU_MEMORY_UTILIZATION, HF_TOKEN, etc.
 docker compose up --build -d
-docker compose logs -f      # watch model download + vLLM startup
+docker compose logs -f        # watch model download + vLLM startup
 ```
 
-Or without compose:
+### 2. Query the server
 
 ```bash
-docker build -t chandra-ocr-server .
-docker run -d --gpus all \
-  -p 8080:8080 \
-  -v /shared/huggingface/cache:/shared/huggingface/cache \
-  --env-file .env \
-  --name chandra-ocr \
-  chandra-ocr-server
+python ocr_client/client.py invoice.pdf
+python ocr_client/client.py invoice.pdf --format markdown
 ```
 
-First startup will download the model weights into
-`/shared/huggingface/cache` on the host and can take several minutes —
-subsequent rebuilds/restarts reuse that cache and skip the download. The
-container `HEALTHCHECK` / `/health` endpoint won't report healthy until
-vLLM has finished loading.
+### 3. Run the Zotero → Obsidian pipeline
 
-Per-request job scratch space (`WORK_DIR=/data/jobs`) lives only inside the
-container and is deleted after each response — no volume is mounted for it,
-by design.
-
-Check it's alive:
+See [example/README.md](example/README.md) for full instructions.
 
 ```bash
-curl http://<remote-host>:8080/health
-curl http://<remote-host>:8080/v1/info
+cd example
+cp .env.example .env          # set ZOTERO_DIR, RAW_LITERATURE_DIR, ZOTERO_SYNC_FILE, etc.
+python zotero_sync.py         # OCR all listed papers
+python create_slugs.py        # generate Obsidian note stubs
 ```
 
-## API
-
-### `POST /v1/process`
-
-`multipart/form-data` with:
-
-| Field                     | Type    | Default | Notes                                                        |
-|---------------------------|---------|---------|----------------------------------------------------------------|
-| `file`                    | file    | —       | PDF or image (`.pdf .png .jpg .jpeg .tif .tiff .bmp .webp`)   |
-| `method`                  | string  | `vllm`  | `vllm` or `hf` (hf requires the `[hf]` extra + torch; not installed by default) |
-| `response_format`         | string  | `zip`   | `zip` (full output folder), `markdown`, `html`, or `json`     |
-| `page_range`              | string  | none    | e.g. `"1-5,7,9-12"` (PDF only)                                |
-| `max_output_tokens`       | int     | none    | Max tokens per page                                           |
-| `max_workers`             | int     | none    | Parallel vLLM request workers                                 |
-| `batch_size`              | int     | none    | Pages per batch (chandra default: 28 for vllm)                |
-| `include_images`          | bool    | `true`  | Extract embedded images                                       |
-| `include_headers_footers` | bool    | `false` | Keep page headers/footers in output                            |
-
-`response_format=zip` returns `application/zip` containing everything
-chandra writes for that file: `<name>.md`, `<name>.html`,
-`<name>_metadata.json`, and any extracted `image_N.png` files — i.e. the full
-folder, as requested.
-
-```bash
-curl -X POST http://<host>:8080/v1/process \
-  -F "file=@invoice.pdf" \
-  -F "response_format=zip" \
-  -F "include_images=true" \
-  -o result.zip
-```
-
-### `GET /health`
-Pings the internal vLLM server's `/models` endpoint.
-
-### `GET /v1/info`
-Returns the active model/config defaults.
-
-## Python client
-
-```bash
-pip install requests
-
-# Full folder (markdown + html + json + images), sensible defaults
-python client.py invoice.pdf
-
-# Just the markdown text
-python client.py invoice.pdf --format markdown
-
-# Only pages 1-5, skip image extraction, custom server
-python client.py scan.pdf --page-range 1-5 --no-images --server http://gpu-box:8080
-```
-
-```python
-from client import ChandraClient
-
-client = ChandraClient("http://gpu-box:8080")
-result_dir = client.process("invoice.pdf", out_dir="./results")
-# ./results/invoice/invoice.md
-# ./results/invoice/invoice.html
-# ./results/invoice/invoice_metadata.json
-# ./results/invoice/image_0.png, ...
-```
-
-## Tuning for a single 24GB GPU
-
-- `GPU_MEMORY_UTILIZATION` (default `0.90`) — lower if you see OOMs or are
-  sharing the GPU with anything else.
-- `MAX_MODEL_LEN` — cap context length if you need more KV-cache headroom.
-- `MAX_CONCURRENT_JOBS` (default `2`) — this only limits how many `chandra`
-  CLI processes run concurrently on the CPU side (PDF rendering, zipping);
-  vLLM queues/batches actual GPU inference across all of them regardless.
-- `VLLM_EXTRA_ARGS` — pass any additional raw `vllm serve` flags, e.g.
-  `--max-num-seqs 64`.
-
-## Files
+## Architecture
 
 ```
-Dockerfile              # vLLM + FastAPI wrapper, single image
-docker-entrypoint.sh     # boots vLLM, waits for health, then starts the API
-server.py                # FastAPI wrapper around the `chandra` CLI
-client.py                # example Python client
-requirements.txt         # pinned wrapper/inference deps
-docker-compose.yml        # convenience compose file with GPU reservation
-.env.example              # documented config options
+┌─────────────────────────────────────────────────────┐
+│  Docker container (single GPU)                       │
+│                                                      │
+│  ┌──────────────────┐    ┌──────────────────────┐   │
+│  │  vllm serve      │    │  server.py (FastAPI) │   │
+│  │  chandra-ocr-2   │◄───│  POST /v1/process    │   │
+│  │  :8000           │    │  GET  /health        │   │
+│  └──────────────────┘    │  GET  /v1/info       │   │
+│                          └──────────────────────┘   │
+│                          docker-entrypoint.sh        │
+│                          (boots both, waits for      │
+│                           vLLM, exits on failure)    │
+└─────────────────────────────────────────────────────┘
+         ▲
+         │ HTTP
+┌────────┴──────────────────────────────────────────┐
+│  ocr_client/client.py  (Python library + CLI)      │
+│  example/zotero_sync.py  (Zotero → OCR)            │
+│  example/create_slugs.py  (OCR → Obsidian notes)   │
+└───────────────────────────────────────────────────┘
 ```
+
+- **`ocr_docker/`** runs two processes inside one container: vLLM (inference backend) and a FastAPI wrapper. The entrypoint waits for vLLM to become healthy before starting the API and exits if either process dies, letting your orchestrator restart the container.
+- **`ocr_client/`** is a standalone HTTP client that mirrors every server form field. It's used directly from the CLI and by `example/zotero_sync.py`.
+- **`example/`** demonstrates a real-world workflow: `zotero_sync.py` reads a Zotero SQLite database, finds PDFs for citation keys in a sync file, runs each through the OCR server, and writes results to `Raw Literature/<citationKey>/` inside an Obsidian vault. `create_slugs.py` then generates note stubs from a BetterBibTeX export, keyed on the same citation keys.
+
+## Configuration
+
+Each subproject has its own `.env.example`. Copy it to `.env` in that directory and adjust as needed. All server behaviour is controlled via environment variables — see `ocr_docker/.env.example` for the full list.
+
+## License note
+
+Chandra's code is Apache-2.0, but the model weights use a modified OpenRAIL-M license (free for research/personal use and startups under $2 M funding/revenue; commercial self-hosting beyond that needs a license from datalab.to). Make sure your usage qualifies.

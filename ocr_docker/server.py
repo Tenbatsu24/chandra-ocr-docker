@@ -91,7 +91,9 @@ async def health():
             models = r.json()
         return {"status": "ok", "vllm_backend": "up", "models": models}
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"vLLM backend unavailable: {exc}") from exc
+        raise HTTPException(
+            status_code=503, detail=f"vLLM backend unavailable: {exc}"
+        ) from exc
 
 
 @app.get("/v1/info")
@@ -110,17 +112,29 @@ async def info():
 @app.post("/v1/process")
 async def process_document(
     file: UploadFile = File(..., description="PDF or image file to OCR"),
-    method: str = Form(DEFAULT_METHOD, description="Inference backend: vllm (default) or hf"),
+    method: str = Form(
+        DEFAULT_METHOD, description="Inference backend: vllm (default) or hf"
+    ),
     response_format: str = Form("zip", description="zip | markdown | html | json"),
     page_range: Optional[str] = Form(None, description='e.g. "1-5,7,9-12" (PDF only)'),
-    max_output_tokens: Optional[int] = Form(None, description="Max output tokens per page"),
-    max_workers: Optional[int] = Form(None, description="Parallel vLLM request workers"),
-    batch_size: Optional[int] = Form(None, description="Pages per batch (default: 28 for vllm)"),
+    max_output_tokens: Optional[int] = Form(
+        None, description="Max output tokens per page"
+    ),
+    max_workers: Optional[int] = Form(
+        None, description="Parallel vLLM request workers"
+    ),
+    batch_size: Optional[int] = Form(
+        None, description="Pages per batch (default: 28 for vllm)"
+    ),
     include_images: bool = Form(True, description="Extract and return embedded images"),
-    include_headers_footers: bool = Form(False, description="Keep page headers/footers in output"),
+    include_headers_footers: bool = Form(
+        False, description="Keep page headers/footers in output"
+    ),
 ):
     if response_format not in RESPONSE_FORMATS:
-        raise HTTPException(400, f"response_format must be one of {sorted(RESPONSE_FORMATS)}")
+        raise HTTPException(
+            400, f"response_format must be one of {sorted(RESPONSE_FORMATS)}"
+        )
 
     filename = _safe_filename(file.filename or "upload")
     suffix = Path(filename).suffix.lower()
@@ -156,7 +170,11 @@ async def process_document(
     if batch_size is not None:
         cmd += ["--batch-size", str(batch_size)]
     cmd += ["--include-images"] if include_images else ["--no-images"]
-    cmd += ["--include-headers-footers"] if include_headers_footers else ["--no-headers-footers"]
+    cmd += (
+        ["--include-headers-footers"]
+        if include_headers_footers
+        else ["--no-headers-footers"]
+    )
 
     logger.info("job=%s cmd=%s", job_id, " ".join(cmd))
 
@@ -174,7 +192,9 @@ async def process_document(
         except asyncio.TimeoutError:
             proc.kill()
             _cleanup(job_dir)
-            raise HTTPException(504, f"Processing timed out after {JOB_TIMEOUT_SECONDS}s")
+            raise HTTPException(
+                504, f"Processing timed out after {JOB_TIMEOUT_SECONDS}s"
+            )
         except FileNotFoundError:
             _cleanup(job_dir)
             raise HTTPException(
@@ -211,14 +231,18 @@ async def process_document(
         md_path = result_dir / f"{stem}.md"
         content = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
         return PlainTextResponse(
-            content, media_type="text/markdown", background=BackgroundTask(_cleanup, job_dir)
+            content,
+            media_type="text/markdown",
+            background=BackgroundTask(_cleanup, job_dir),
         )
 
     if response_format == "html":
         html_path = result_dir / f"{stem}.html"
         content = html_path.read_text(encoding="utf-8") if html_path.exists() else ""
         return PlainTextResponse(
-            content, media_type="text/html", background=BackgroundTask(_cleanup, job_dir)
+            content,
+            media_type="text/html",
+            background=BackgroundTask(_cleanup, job_dir),
         )
 
     # response_format == "json"

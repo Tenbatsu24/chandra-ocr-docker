@@ -27,7 +27,7 @@ ENV MODEL_CHECKPOINT=datalab-to/chandra-ocr-2 \
 
 RUN mkdir -p /data/jobs /data/hf-cache
 
-EXPOSE 8090
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=600s --retries=3 \
     CMD curl -sf http://127.0.0.1:${APP_PORT}/health || exit 1

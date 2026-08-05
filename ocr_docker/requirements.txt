@@ -1,6 +1,5 @@
 # --- Inference backend ---
-# vllm pulls in a matching torch build. Verify a CUDA-13-compatible wheel is
-# available for the pinned version before building (see README "CUDA 13 notes").
+# vllm pulls in a matching torch build.
 vllm>=0.11.0
 
 # --- OCR pipeline (base install only; we don't need the [hf] extra since

@@ -5,7 +5,7 @@ Library usage:
 
     from client import ChandraClient
 
-    client = ChandraClient("http://gpu-box:8090")
+    client = ChandraClient("http://gpu-box:8080")
     result_dir = client.process("invoice.pdf", out_dir="./results")
     # -> ./results/invoice/invoice.md, invoice.html, invoice_metadata.json, image_0.png, ...
 
@@ -13,7 +13,7 @@ CLI usage:
 
     python client.py invoice.pdf
     python client.py invoice.pdf --out ./results --format markdown
-    python client.py scan.png --no-images --page-range 1-5 --server http://gpu-box:8090
+    python client.py scan.png --no-images --page-range 1-5 --server http://gpu-box:8080
 
 Requires: pip install requests
 """
@@ -29,7 +29,7 @@ from typing import Optional
 
 import requests
 
-DEFAULT_SERVER = "http://127.0.0.1:8090"
+DEFAULT_SERVER = "http://127.0.0.1:8080"
 SUPPORTED_FORMATS = ("zip", "markdown", "html", "json")
 
 
@@ -139,7 +139,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Query a Chandra OCR server.")
     parser.add_argument("file", help="Path to a PDF or image file to process")
     parser.add_argument("--server", default=DEFAULT_SERVER, help="Server base URL")
-    parser.add_argument("--out", default="./chandra_output", help="Local output directory")
+    parser.add_argument(
+        "--out", default="./chandra_output", help="Local output directory"
+    )
     parser.add_argument(
         "--format",
         dest="response_format",
@@ -148,15 +150,23 @@ def main() -> None:
         help="zip (full folder, default) | markdown | html | json",
     )
     parser.add_argument("--method", default="vllm", choices=["vllm", "hf"])
-    parser.add_argument("--page-range", default=None, help='e.g. "1-5,7,9-12" (PDF only)')
+    parser.add_argument(
+        "--page-range", default=None, help='e.g. "1-5,7,9-12" (PDF only)'
+    )
     parser.add_argument("--max-output-tokens", type=int, default=None)
     parser.add_argument("--max-workers", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
-    parser.add_argument("--no-images", action="store_true", help="Skip extracting images")
     parser.add_argument(
-        "--headers-footers", action="store_true", help="Keep page headers/footers in output"
+        "--no-images", action="store_true", help="Skip extracting images"
     )
-    parser.add_argument("--timeout", type=int, default=600, help="Client-side request timeout")
+    parser.add_argument(
+        "--headers-footers",
+        action="store_true",
+        help="Keep page headers/footers in output",
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=600, help="Client-side request timeout"
+    )
     args = parser.parse_args()
 
     client = ChandraClient(server_url=args.server, timeout=args.timeout)
