@@ -1,0 +1,14 @@
+# --- Inference backend ---
+# vllm pulls in a matching torch build. Verify a CUDA-13-compatible wheel is
+# available for the pinned version before building (see README "CUDA 13 notes").
+vllm>=0.11.0
+
+# --- OCR pipeline (base install only; we don't need the [hf] extra since
+#     inference goes through the vLLM backend) ---
+chandra-ocr>=0.2.0
+
+# --- HTTP wrapper ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+httpx>=0.27

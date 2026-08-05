@@ -1,0 +1,26 @@
+services:
+  chandra:
+    build:
+      context: .
+    image: chandra-ocr-server:latest
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    environment:
+      MODEL_CHECKPOINT: datalab-to/chandra-ocr-2
+      VLLM_MODEL_NAME: chandra
+      GPU_MEMORY_UTILIZATION: "0.90"
+      MAX_CONCURRENT_JOBS: "2"
+      JOB_TIMEOUT_SECONDS: "1800"
+      # Only needed if the model repo requires authentication:
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - /data/hf-cache:/shared/huggingface/cache
+    shm_size: "2gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: ["gpu"]
